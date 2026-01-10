@@ -12,6 +12,7 @@ from rich.prompt import Confirm, Prompt
 
 from unclaude.config import get_settings
 from unclaude.context import ContextLoader
+from unclaude.hooks import HooksEngine
 from unclaude.memory import MemoryStore
 from unclaude.providers import Message, Provider, ToolCall, ToolDefinition
 from unclaude.tools import Tool, ToolResult, get_default_tools
@@ -86,6 +87,9 @@ class AgentLoop:
             )
 
         self.system_prompt = system_prompt or SYSTEM_PROMPT
+
+        # Hooks engine for pre/post tool automation
+        self.hooks_engine = HooksEngine(self.project_path)
 
     def _get_tool_definitions(self) -> list[ToolDefinition]:
         """Get tool definitions for the LLM."""
@@ -176,10 +180,18 @@ class AgentLoop:
                 error="Permission denied by user",
             )
 
-        # Execute the tool
+        # Execute the tool with hooks
         console.print(f"[dim]Executing {call.name}...[/dim]")
         try:
+            # Pre-tool hooks
+            await self.hooks_engine.execute_hooks("pre_tool", call.name, call.arguments)
+            
+            # Execute the tool
             result = await tool.execute(**call.arguments)
+            
+            # Post-tool hooks
+            await self.hooks_engine.execute_hooks("post_tool", call.name, call.arguments, result)
+            
             return result
         except Exception as e:
             return ToolResult(success=False, output="", error=str(e))
@@ -222,20 +234,34 @@ class AgentLoop:
                 self.conversation_id, "user", user_input
             )
             
+            # Index this message for long-term recall (Infinite Memory)
+            import uuid
+            memory_id = f"msg-{uuid.uuid4()}"
+            self.memory_store.save_memory(
+                memory_id=memory_id,
+                content=user_input,
+                memory_type="recall",
+                metadata={"conversation_id": self.conversation_id, "role": "user"},
+                project_path=str(self.project_path),
+            )
+            
             # Infinite Memory: Retrieve relevant context
-            # We search for the user's input in past memories/conversations
-            # Ideally this would be vector search, but keyword search works for MVP
-            memories = self.memory_store.search_memories(user_input, limit=3)
+            # Project-scoped for speed: only search memories from this project
+            memories = self.memory_store.search_memories(
+                user_input, 
+                project_path=str(self.project_path),
+                limit=3
+            )
             if memories:
-                memory_context = "\n".join([f"- {m['content']} (from {m['created_at']})" for m in memories])
+                memory_context = "\n".join([f"- {m['content'][:200]}" for m in memories])
                 
-                # Check for duplicates to avoid repeating current context
-                if memory_context:
-                    console.print(Panel(f"[dim]Recalled {len(memories)} memories[/dim]", title="Brain 🧠"))
+                # Avoid injecting if it exactly matches current input
+                if memory_context and user_input not in memory_context:
+                    console.print(Panel(f"[dim]Recalled {len(memories)} project memories[/dim]", title="Brain 🧠"))
                     self.messages.append(
                         Message(
                             role="system", 
-                            content=f"RECALLED MEMORY:\n{memory_context}\nUse this context if relevant."
+                            content=f"RECALLED MEMORY (from this project):\n{memory_context}\nUse this context if relevant."
                         )
                     )
 
@@ -276,6 +302,17 @@ class AgentLoop:
                     self.messages.append(
                         Message(role="assistant", content=response.content)
                     )
+                    # Save assistant response to long-term memory
+                    if self.enable_memory and self.memory_store:
+                        import uuid
+                        memory_id = f"msg-{uuid.uuid4()}"
+                        self.memory_store.save_memory(
+                            memory_id=memory_id,
+                            content=response.content,
+                            memory_type="recall",
+                            metadata={"conversation_id": self.conversation_id, "role": "assistant"},
+                            project_path=str(self.project_path),
+                        )
                 return response.content or "I'm not sure how to respond to that."
 
             # Add assistant message with tool calls

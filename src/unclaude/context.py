@@ -144,7 +144,14 @@ class ContextLoader:
             self.load()
 
         parts = []
+        
+        # Include raw UNCLAUDE.md content first (most important)
+        if self._context.get("raw_content"):
+            parts.append("## Project Configuration (from UNCLAUDE.md)")
+            parts.append(self._context["raw_content"].strip())
+            parts.append("")  # Separator
 
+        # Also include structured data for backwards compatibility
         if self._context.get("commands"):
             parts.append("## Available Commands")
             for cmd in self._context["commands"]:

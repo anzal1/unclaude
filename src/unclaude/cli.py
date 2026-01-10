@@ -45,14 +45,27 @@ def chat(
     message: str = typer.Argument(None, help="Initial message to send"),
     provider: str = typer.Option(None, "--provider", "-p", help="LLM provider to use"),
     model: str = typer.Option(None, "--model", "-m", help="Model to use"),
+    headless: bool = typer.Option(False, "--headless", "-H", help="Run in headless mode (no interactive prompts, for CI/CD)"),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output response as JSON"),
 ) -> None:
     """Start an interactive chat session with UnClaude."""
+    import json as json_lib
     from unclaude.onboarding import ensure_configured, get_provider_api_key, PROVIDERS
     
-    # Ensure configured (run onboarding if first time)
-    config = ensure_configured()
+    # Ensure configured (run onboarding if first time) - skip in headless mode
+    if not headless:
+        config = ensure_configured()
+    else:
+        # In headless mode, load config without interactive prompts
+        from unclaude.config import get_settings
+        settings = get_settings()
+        config = {
+            "default_provider": settings.default_provider,
+            "providers": {k: {"model": v.model} for k, v in settings.providers.items()},
+        }
     
-    print_banner()
+    if not headless:
+        print_banner()
     
     # Determine provider and model
     use_provider = provider or config.get("default_provider", "gemini")
@@ -60,7 +73,7 @@ def chat(
     use_model = model or provider_config.get("model")
     
     # Load API key and set environment variable
-    api_key = get_provider_api_key(use_provider)
+    api_key = get_provider_api_key(use_provider) if not headless else os.environ.get(f"{use_provider.upper()}_API_KEY")
     if api_key:
         provider_info = PROVIDERS.get(use_provider, {})
         env_var = provider_info.get("env_var")
@@ -74,24 +87,42 @@ def chat(
         if use_model:
             llm_provider.config.model = use_model
     except Exception as e:
-        console.print(f"[red]Error creating provider: {e}[/red]")
+        if json_output:
+            print(json_lib.dumps({"error": str(e), "success": False}))
+        else:
+            console.print(f"[red]Error creating provider: {e}[/red]")
         raise typer.Exit(1)
 
-    console.print(f"[dim]Provider: {use_provider} | Model: {use_model or 'default'}[/dim]")
-    console.print(f"[dim]Working directory: {os.getcwd()}[/dim]")
-    console.print("[dim]Type 'exit' or 'quit' to end, '/clear' to reset, '/help' for commands[/dim]\n")
+    if not headless:
+        console.print(f"[dim]Provider: {use_provider} | Model: {use_model or 'default'}[/dim]")
+        console.print(f"[dim]Working directory: {os.getcwd()}[/dim]")
+        console.print("[dim]Type 'exit' or 'quit' to end, '/clear' to reset, '/help' for commands[/dim]\n")
 
     agent = AgentLoop(provider=llm_provider)
 
     async def run_chat() -> None:
         # Handle initial message if provided
         if message:
-            console.print(f"[bold]You:[/bold] {message}\n")
+            if not headless:
+                console.print(f"[bold]You:[/bold] {message}\n")
             response = await agent.run(message)
-            console.print(Panel(Markdown(response), title="UnClaude", border_style="green"))
-            console.print()
+            
+            if json_output:
+                print(json_lib.dumps({"response": response, "success": True}))
+            elif not headless:
+                console.print(Panel(Markdown(response), title="UnClaude", border_style="green"))
+                console.print()
+            else:
+                print(response)
+        
+        # In headless mode with a message, exit after response
+        if headless and message:
+            return
 
-        # Interactive loop
+        # Interactive loop (only in non-headless mode)
+        if headless:
+            return
+            
         while True:
             try:
                 user_input = Prompt.ask("[bold]You[/bold]")
@@ -469,6 +500,56 @@ def mcp(
         return
 
     console.print("Use --list to see servers or --init to create config.")
+
+
+@app.command()
+def background(
+    task: str = typer.Argument(..., help="Task to run in background"),
+) -> None:
+    """Run a task in the background without blocking."""
+    from unclaude.agent.background import BackgroundAgentManager
+    
+    manager = BackgroundAgentManager()
+    job_id = manager.start_background_task(task)
+    console.print(f"[green]Started background job:[/green] {job_id}")
+    console.print(f"[dim]Check status with: unclaude jobs {job_id}[/dim]")
+
+
+@app.command()
+def jobs(
+    job_id: str = typer.Argument(None, help="Specific job ID to check"),
+) -> None:
+    """List or check status of background jobs."""
+    from unclaude.agent.background import BackgroundAgentManager
+
+    manager = BackgroundAgentManager()
+
+    if job_id:
+        job = manager.get_job_status(job_id)
+        if not job:
+            console.print(f"[red]Job not found: {job_id}[/red]")
+            return
+
+        console.print(f"\n[bold]Job {job.job_id}[/bold]")
+        console.print(f"Task: {job.task}")
+        console.print(f"Status: {job.status}")
+        console.print(f"Started: {job.started_at}")
+        if job.completed_at:
+            console.print(f"Completed: {job.completed_at}")
+        if job.result:
+            console.print(f"Result:\n{job.result[:500]}...")
+        if job.error:
+            console.print(f"[red]Error: {job.error}[/red]")
+    else:
+        jobs_list = manager.list_jobs()
+        if not jobs_list:
+            console.print("[yellow]No background jobs found.[/yellow]")
+            return
+
+        console.print("\n[bold]Recent Background Jobs:[/bold]\n")
+        for job in jobs_list:
+            status_color = "green" if job.status == "completed" else "yellow" if job.status == "running" else "red"
+            console.print(f"  [{status_color}]{job.job_id}[/{status_color}] - {job.task[:50]}... ({job.status})")
 
 
 if __name__ == "__main__":
