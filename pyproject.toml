@@ -1,13 +1,11 @@
 [project]
 name = "unclaude"
-version = "0.1.0"
+version = "0.1.1"
 description = "Open Source Model-Independent Alternative to Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-authors = [
-    { name = "UnClaude Contributors" }
-]
+authors = [{ name = "UnClaude Contributors" }]
 keywords = ["ai", "llm", "coding-assistant", "agentic", "cli"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -30,15 +28,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-]
-memory = [
-    "chromadb>=0.4.0",
-]
+dev = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0", "ruff>=0.1.0", "mypy>=1.0.0"]
+memory = ["chromadb>=0.4.0"]
 
 [project.scripts]
 unclaude = "unclaude.cli:app"

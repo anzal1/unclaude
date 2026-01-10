@@ -1,7 +1,6 @@
 # UnClaude 🤖
 
-> **The Open Source, Model-Independent AI Engineer.**
-> *Your Data. Your Models. Your Rules.*
+> **The Open Source, Model-Independent AI Engineer.** > _Your Data. Your Models. Your Rules._
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
@@ -14,58 +13,80 @@ UnClaude is a powerful **Agentic Coding Assistant** that runs entirely on your l
 ## 🚀 Key Features
 
 ### 🌟 Model Independence
+
 Don't be locked into a single provider. UnClaude uses `LiteLLM` to support over 100+ models. Switch between cheap, fast models for planning and reasoning models for coding instantly.
 
 ### 🧠 Infinite Memory (The Brain)
-UnClaude implements a local Vector Database (Chroma/LanceDB) to remember your project context, architecture decisions, and secrets across sessions. It doesn't just read files; it *remembers*.
+
+UnClaude implements a local Vector Database (Chroma/LanceDB) to remember your project context, architecture decisions, and secrets across sessions. It doesn't just read files; it _remembers_.
 
 ### 🏗️ Ralph Wiggum Mode (Autonomous Engineer)
+
 The `ralph` command launches a **Multi-Agent Swarm** designed for autonomy:
-*   **Plans**: Creates a `TASK.md` blueprint before coding.
-*   **Codes**: Implements complex multi-file projects.
-*   **Verifies**: Runs tests/commands (`pytest`, `npm test`) in a TDD loop.
-*   **Self-Heals**: If tests fail, it autonomously analyzes the error and fixes the code.
+
+- **Plans**: Creates a `TASK.md` blueprint before coding.
+- **Codes**: Implements complex multi-file projects.
+- **Verifies**: Runs tests/commands (`pytest`, `npm test`) in a TDD loop.
+- **Self-Heals**: If tests fail, it autonomously analyzes the error and fixes the code.
 
 ### 🌐 Browser Automation (The Eyes)
+
 UnClaude includes native **Browser Integration** (via Playwright). It can:
-*   Open URLs and verify web applications.
-*   Click, type, and interact with UIs.
-*   Take screenshots for visual verification.
+
+- Open URLs and verify web applications.
+- Click, type, and interact with UIs.
+- Take screenshots for visual verification.
 
 ### 🛠️ Full System Access (The Hands)
+
 A true agent needs tools. UnClaude provides:
-*   **File Operations**: Read, Write, Edit, Glob, Grep.
-*   **Terminal**: Execute Bash commands with permission handling.
-*   **Web**: Search and Fetch capabilities.
+
+- **File Operations**: Read, Write, Edit, Glob, Grep.
+- **Terminal**: Execute Bash commands with permission handling.
+- **Web**: Search and Fetch capabilities.
 
 ---
 
 ## 📦 Installation
 
-### Option 1: pipx (Recommended)
-Calculated to be the easiest way to run Python CLIs (like `npx`).
+### Option 1: uv (Recommended)
+
+The fastest way to install Python CLI tools:
+
 ```bash
-pipx install unclaude
-# or run without installing
-pipx run unclaude chat
+uv tool install unclaude
 ```
 
-### Option 2: pip (Standard)
+### Option 2: pipx
+
+Another great option for Python CLIs:
+
+```bash
+pipx install unclaude
+```
+
+### Option 3: pip
+
 ```bash
 pip install unclaude
 ```
 
-### Option 3: Development (from source)
+> **Note:** If `unclaude` command is not found after pip install, ensure `~/.local/bin` is in your PATH.
+
+### Option 4: Development (from source)
+
 If you want to modify the code:
+
 ```bash
-git clone https://github.com/yourusername/unclaude.git
+git clone https://github.com/anzal1/unclaude.git
 cd unclaude
 pip install -e .
 ```
-*(Note: You can use `uv pip` for faster installation, but standard `pip` works fine!)*
 
 ### Browser Support
+
 To use the browser tool, you need the Playwright browsers:
+
 ```bash
 playwright install chromium
 ```
@@ -80,6 +101,7 @@ unclaude login
 ```
 
 This will guide you through:
+
 1.  Selecting your default LLM provider (Gemini, OpenAI, Anthropic, etc.).
 2.  Entering your API Key (stored securely in `~/.unclaude/config.toml`).
 3.  configuring optional settings.
@@ -89,21 +111,27 @@ This will guide you through:
 ## 🎮 Usage
 
 ### 💬 Interactive Chat
+
 Just talk to code.
+
 ```bash
 unclaude chat
 > "Refactor utils.py to use async/await."
 ```
 
 ### 🏎️ Create Projects (Ralph Mode)
+
 Give it a job and a way to verify it.
+
 ```bash
 # The "One Prompt Project"
 unclaude ralph "Build a Snake Game in Python with a GUI" -f "python3 snake.py"
 ```
 
 ### 🧠 Managing Memory
+
 UnClaude automatically indexes your conversation for future recall.
+
 ```bash
 unclaude chat "Remember that the deployment port is 8080."
 ```
@@ -133,4 +161,4 @@ Apache 2.0. Open Source forever.
 
 ---
 
-*Built with ❤️ by Anzal & The Community.*
+_Built with ❤️ by Anzal & The Community._
