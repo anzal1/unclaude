@@ -52,5 +52,6 @@ web-ui/.next/
 web-ui/out/
 web-ui/.turbo/
 
-# Bundled static files (built by CI)
-src/unclaude/web/static/
+# Bundled static files (contents built by CI, but keep the directory)
+src/unclaude/web/static/*
+!src/unclaude/web/static/.gitkeep
