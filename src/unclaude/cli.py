@@ -552,5 +552,49 @@ def jobs(
             console.print(f"  [{status_color}]{job.job_id}[/{status_color}] - {job.task[:50]}... ({job.status})")
 
 
+@app.command()
+def web(
+    port: int = typer.Option(8765, "--port", "-p", help="Port to run the dashboard on"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser automatically"),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
+) -> None:
+    """Launch the UnClaude web dashboard.
+    
+    Opens a beautiful local web interface for:
+    - Chat with real-time streaming
+    - Memory browser and management
+    - Background job monitoring
+    - Settings and configuration
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        console.print("[red]Error: uvicorn not installed.[/red]")
+        console.print("Install with: pip install unclaude[web]")
+        console.print("Or: pip install uvicorn fastapi websockets")
+        raise typer.Exit(1)
+    
+    from unclaude.web.server import create_app
+    
+    url = f"http://{host}:{port}"
+    
+    console.print(Panel(
+        f"[bold cyan]UnClaude Dashboard[/bold cyan]\n\n"
+        f"🌐 URL: [link={url}]{url}[/link]\n"
+        f"📡 API: {url}/api/\n\n"
+        "[dim]Press Ctrl+C to stop[/dim]",
+        title="🚀 Starting Web Server",
+        border_style="cyan",
+    ))
+    
+    if not no_browser:
+        import webbrowser
+        webbrowser.open(url)
+    
+    # Create and run the app
+    web_app = create_app()
+    uvicorn.run(web_app, host=host, port=port, log_level="warning")
+
+
 if __name__ == "__main__":
     app()

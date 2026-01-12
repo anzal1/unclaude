@@ -45,3 +45,12 @@ site_data/
 .idea/
 *.swp
 .DS_Store
+
+# Web UI
+web-ui/node_modules/
+web-ui/.next/
+web-ui/out/
+web-ui/.turbo/
+
+# Bundled static files (built by CI)
+src/unclaude/web/static/

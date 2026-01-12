@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'src/**'
+      - 'web-ui/**'
       - 'pyproject.toml'
   workflow_dispatch:  # Allows manual triggering from GitHub UI
 
@@ -17,6 +18,21 @@ jobs:
       id-token: write  # IMPORTANT: Required for trusted publishing
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-ui/package-lock.json
+      
+      - name: Build Web UI
+        run: |
+          cd web-ui
+          npm ci
+          npm run build
+          mkdir -p ../src/unclaude/web/static
+          cp -r out/* ../src/unclaude/web/static/
       
       - name: Set up Python
         uses: actions/setup-python@v4

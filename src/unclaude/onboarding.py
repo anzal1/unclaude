@@ -50,46 +50,107 @@ PROVIDERS = {
 }
 
 
-def get_models_for_provider(provider: str) -> list[str]:
+def get_models_for_provider(provider: str, include_custom: bool = True) -> list[str]:
     """Fetch available models for a provider from LiteLLM.
     
     Args:
         provider: Provider name (gemini, openai, anthropic, ollama).
+        include_custom: Whether to include custom models from config.
         
     Returns:
         List of model names.
     """
+    models = []
+    
     try:
-        from litellm import model_list, models_by_provider
+        # Use model_cost dict which is more comprehensive and up-to-date
+        from litellm import model_cost
         
-        # Map our provider names to LiteLLM provider names
-        provider_map = {
-            "gemini": "gemini",
-            "openai": "openai",
-            "anthropic": "anthropic",
-            "ollama": "ollama",
+        # Provider prefix mapping
+        prefix_map = {
+            "gemini": "gemini/",
+            "openai": "",  # OpenAI models don't have prefix
+            "anthropic": "",  # Anthropic models don't have prefix
+            "ollama": "ollama/",
         }
         
-        litellm_provider = provider_map.get(provider, provider)
+        prefix = prefix_map.get(provider, f"{provider}/")
         
-        # Get models by provider
-        if hasattr(models_by_provider, litellm_provider):
-            models = getattr(models_by_provider, litellm_provider, [])
-            if models:
-                # Filter to only chat/completion models, limit to top 10
-                filtered = [m for m in models if not any(x in m.lower() for x in ['embed', 'whisper', 'tts', 'image', 'vision', 'moderation'])]
-                return filtered[:10] if filtered else models[:10]
+        # Filter models by provider
+        for model_name in model_cost.keys():
+            # Handle different provider patterns
+            if provider == "openai":
+                # OpenAI models: gpt-4, gpt-4o, gpt-3.5-turbo, etc.
+                if model_name.startswith(("gpt-", "o1-", "o3-", "chatgpt-")):
+                    if not any(x in model_name.lower() for x in ['embed', 'whisper', 'tts', 'image', 'dall', 'moderation']):
+                        models.append(model_name)
+            elif provider == "anthropic":
+                # Anthropic models: claude-3, claude-2, etc.
+                if model_name.startswith("claude"):
+                    if not any(x in model_name.lower() for x in ['embed', 'image']):
+                        models.append(model_name)
+            elif prefix and model_name.startswith(prefix):
+                # For prefixed providers (gemini/, ollama/)
+                short_name = model_name[len(prefix):]
+                if not any(x in short_name.lower() for x in ['embed', 'whisper', 'tts', 'image', 'vision', 'moderation']):
+                    models.append(short_name)
+        
+        # Sort and limit
+        models = sorted(set(models))[:15]
+        
     except Exception:
         pass
     
     # Fallback to curated list if dynamic fetching fails
-    fallback_models = {
-        "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
-        "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-        "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
-        "ollama": ["llama3.2", "codellama", "mistral", "deepseek-coder"],
-    }
-    return fallback_models.get(provider, [])
+    if not models:
+        fallback_models = {
+            "gemini": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
+            "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo", "o1", "o1-mini"],
+            "anthropic": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
+            "ollama": ["llama3.2", "codellama", "mistral", "deepseek-coder", "qwen2.5"],
+        }
+        models = fallback_models.get(provider, [])
+    
+    # Include custom models from config
+    if include_custom:
+        config = load_config()
+        custom_models = config.get("custom_models", {}).get(provider, [])
+        if custom_models:
+            # Add custom models at the beginning
+            models = custom_models + [m for m in models if m not in custom_models]
+    
+    return models
+
+
+def get_all_custom_models() -> dict[str, list[str]]:
+    """Get all custom models from config."""
+    config = load_config()
+    return config.get("custom_models", {})
+
+
+def add_custom_model(provider: str, model: str) -> bool:
+    """Add a custom model for a provider."""
+    config = load_config()
+    if "custom_models" not in config:
+        config["custom_models"] = {}
+    if provider not in config["custom_models"]:
+        config["custom_models"][provider] = []
+    if model not in config["custom_models"][provider]:
+        config["custom_models"][provider].append(model)
+        save_config(config)
+        return True
+    return False
+
+
+def remove_custom_model(provider: str, model: str) -> bool:
+    """Remove a custom model for a provider."""
+    config = load_config()
+    if "custom_models" in config and provider in config["custom_models"]:
+        if model in config["custom_models"][provider]:
+            config["custom_models"][provider].remove(model)
+            save_config(config)
+            return True
+    return False
 
 
 def get_config_dir() -> Path:

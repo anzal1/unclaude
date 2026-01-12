@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Provider settings
     default_provider: str = "gemini"
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+    custom_models: dict[str, list[str]] = Field(default_factory=dict)  # {provider: [models]}
 
     # Feature flags
     ralph_wiggum: RalphWiggumConfig = Field(default_factory=RalphWiggumConfig)
