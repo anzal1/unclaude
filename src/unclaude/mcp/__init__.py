@@ -98,7 +98,8 @@ class MCPClient:
             config = yaml.safe_load(f) or {}
 
         servers = {}
-        for name, server_config in config.get("servers", {}).items():
+        servers_config = config.get("servers") or {}
+        for name, server_config in servers_config.items():
             servers[name] = MCPServerConfig(**server_config)
 
         return servers

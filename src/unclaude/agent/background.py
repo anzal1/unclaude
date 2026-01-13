@@ -91,28 +91,53 @@ class BackgroundAgentManager:
         self._save_job(job)
 
         # Start background process
+        # Escape task string for embedding in Python script
+        escaped_task = task.replace('\\', '\\\\').replace('"', '\\"').replace("'", "\\'")
+        
         script = f'''
 import asyncio
 import json
+import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
-# Add unclaude to path
-sys.path.insert(0, "{Path(__file__).parent.parent}")
+# Add unclaude src to path (background.py -> agent -> unclaude -> src)
+sys.path.insert(0, "{Path(__file__).parent.parent.parent}")
 
+from unclaude.onboarding import load_config, load_credential, PROVIDERS
 from unclaude.agent.loop import AgentLoop
 from unclaude.providers.llm import Provider
 
 async def run_task():
     try:
-        agent = AgentLoop(provider=Provider(), enable_memory=True)
-        result = await agent.run("""{task.replace('"', '\\"')}""")
+        # Load configuration and API key
+        config = load_config()
+        provider_name = config.get("default_provider", "gemini")
+        provider_config = config.get("providers", {{}}).get(provider_name, {{}})
+        model = provider_config.get("model")
         
-        # Save result
+        # Load and set API key
+        api_key = load_credential(provider_name)
+        if api_key:
+            provider_info = PROVIDERS.get(provider_name, {{}})
+            env_var = provider_info.get("env_var")
+            if env_var:
+                os.environ[env_var] = api_key
+        
+        # Create provider with config
+        llm_provider = Provider(provider_name)
+        if model:
+            llm_provider.config.model = model
+        
+        agent = AgentLoop(provider=llm_provider, enable_memory=True)
+        result = await agent.run("{escaped_task}")
+        
+        # Save result with runtime timestamp
         with open("{self._get_job_file(job_id)}", "r+") as f:
             data = json.load(f)
             data["status"] = "completed"
-            data["completed_at"] = "{datetime.now().isoformat()}"
+            data["completed_at"] = datetime.now().isoformat()
             data["result"] = result
             f.seek(0)
             json.dump(data, f, indent=2)
@@ -121,6 +146,7 @@ async def run_task():
         with open("{self._get_job_file(job_id)}", "r+") as f:
             data = json.load(f)
             data["status"] = "failed"
+            data["completed_at"] = datetime.now().isoformat()
             data["error"] = str(e)
             f.seek(0)
             json.dump(data, f, indent=2)

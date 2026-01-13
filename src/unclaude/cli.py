@@ -5,8 +5,11 @@ import os
 import warnings
 from pathlib import Path
 
-# Suppress Pydantic serialization warnings from LiteLLM
+# Suppress noisy warnings from LiteLLM
 warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+warnings.filterwarnings("ignore", message="coroutine.*was never awaited")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="litellm")
+warnings.filterwarnings("ignore", message="Enable tracemalloc")
 
 import typer
 from rich.console import Console
@@ -447,13 +450,39 @@ def skills(
             console.print(f"[red]Skill '{run_skill}' not found.[/red]")
             return
 
+        # Load configuration and API key
+        from unclaude.onboarding import ensure_configured, get_provider_api_key, PROVIDERS
+        config = ensure_configured()
+        use_provider = config.get("default_provider", "gemini")
+        provider_config = config.get("providers", {}).get(use_provider, {})
+        use_model = provider_config.get("model")
+        
+        # Load and set API key
+        api_key = get_provider_api_key(use_provider)
+        if api_key:
+            provider_info = PROVIDERS.get(use_provider, {})
+            env_var = provider_info.get("env_var")
+            if env_var:
+                os.environ[env_var] = api_key
+        
+        # Create provider
+        from unclaude.providers.llm import Provider as LLMProvider
+        try:
+            llm_provider = LLMProvider(use_provider)
+            if use_model:
+                llm_provider.config.model = use_model
+        except Exception as e:
+            console.print(f"[red]Error creating provider: {e}[/red]")
+            return
+
         # Generate prompt and run with agent
         from unclaude.agent import AgentLoop
 
         prompt = engine.generate_skill_prompt(skill)
-        console.print(f"[dim]Running skill: {run_skill}[/dim]\n")
+        console.print(f"[dim]Running skill: {run_skill}[/dim]")
+        console.print(f"[dim]Provider: {use_provider} | Model: {use_model or 'default'}[/dim]\n")
 
-        agent = AgentLoop()
+        agent = AgentLoop(provider=llm_provider)
 
         async def run_skill_async() -> None:
             response = await agent.run(prompt)
