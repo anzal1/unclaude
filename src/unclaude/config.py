@@ -45,6 +45,42 @@ class WhitelistConfig(BaseModel):
     paths: list[str] = Field(default_factory=list)
 
 
+class SecurityConfig(BaseModel):
+    """Security and auth configuration for the enhanced agent."""
+
+    profile: str = "developer"  # readonly, developer, full, autonomous, subagent
+    enable_audit: bool = True
+    audit_retention_days: int = 30
+    denied_paths: list[str] = Field(default_factory=list)
+    denied_commands: list[str] = Field(default_factory=list)
+    denied_domains: list[str] = Field(default_factory=list)
+
+
+class RoutingConfig(BaseModel):
+    """Smart routing configuration."""
+
+    profile: str = "auto"  # auto, eco, premium, free
+    preferred_provider: str | None = None
+    enable_cost_tracking: bool = True
+
+
+class HeartbeatConfig(BaseModel):
+    """Heartbeat / proactive agent configuration."""
+
+    enabled: bool = False
+    active_hours_start: int = 8
+    active_hours_end: int = 22
+    check_interval_seconds: float = 10.0
+
+
+class MemoryConfig(BaseModel):
+    """Memory system configuration."""
+
+    enable_hierarchical: bool = True
+    prune_stale_days: int = 90
+    auto_consolidate: bool = True
+
+
 class Settings(BaseSettings):
     """Main settings for UnClaude."""
 
@@ -62,6 +98,12 @@ class Settings(BaseSettings):
     ralph_wiggum: RalphWiggumConfig = Field(default_factory=RalphWiggumConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     whitelist: WhitelistConfig = Field(default_factory=WhitelistConfig)
+
+    # Architecture v2
+    security: SecurityConfig = Field(default_factory=SecurityConfig)
+    routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
     # Paths
     config_dir: Path = Field(default_factory=lambda: Path.home() / ".unclaude")

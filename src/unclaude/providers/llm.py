@@ -6,6 +6,7 @@ import litellm
 from pydantic import BaseModel
 
 from unclaude.config import ProviderConfig, get_settings
+from unclaude.usage import get_usage_tracker
 
 
 class Message(BaseModel):
@@ -64,6 +65,11 @@ class Provider:
         else:
             self.config = settings.providers[self.provider_name]
 
+        # Usage tracking context (set by caller)
+        self._session_id: str | None = None
+        self._task_id: str | None = None
+        self._request_type: str = "chat"
+
     def _get_model_name(self) -> str:
         """Get the full model name for LiteLLM."""
         model = self.config.model
@@ -116,13 +122,13 @@ class Provider:
         message_dicts = []
         for msg in messages:
             msg_dict: dict[str, Any] = {"role": msg.role}
-            
+
             # Always include content for assistant messages (even if empty)
             if msg.role == "assistant":
                 msg_dict["content"] = msg.content or ""
             elif msg.content is not None:
                 msg_dict["content"] = msg.content
-            
+
             if msg.tool_calls:
                 msg_dict["tool_calls"] = msg.tool_calls
             if msg.tool_call_id:
@@ -154,11 +160,11 @@ class Provider:
         max_retries = 3
         last_error = None
         original_tools = kwargs.get("tools")
-        
+
         for attempt in range(max_retries):
             try:
                 response = await litellm.acompletion(**kwargs)
-                
+
                 # Parse the response
                 choice = response.choices[0]
                 message = choice.message
@@ -176,6 +182,25 @@ class Provider:
                             )
                         )
 
+                # Track usage
+                try:
+                    tracker = get_usage_tracker()
+                    prompt_tok = response.usage.prompt_tokens or 0
+                    completion_tok = response.usage.completion_tokens or 0
+                    total_tok = response.usage.total_tokens or 0
+                    tracker.record(
+                        model=self._get_model_name(),
+                        provider=self.provider_name,
+                        prompt_tokens=prompt_tok,
+                        completion_tokens=completion_tok,
+                        total_tokens=total_tok,
+                        session_id=self._session_id,
+                        task_id=self._task_id,
+                        request_type=self._request_type,
+                    )
+                except Exception:
+                    pass  # Never let tracking break the agent
+
                 return LLMResponse(
                     content=message.content,
                     tool_calls=tool_calls,
@@ -189,12 +214,12 @@ class Provider:
             except Exception as e:
                 last_error = e
                 error_msg = str(e).lower()
-                
+
                 # Check for known Gemini/LiteLLM errors
                 is_empty_error = any(x in error_msg for x in [
                     "empty", "must contain", "cannot both be empty"
                 ])
-                
+
                 if is_empty_error and attempt < max_retries - 1:
                     # Remove tools on retry - this often fixes Gemini issues
                     if "tools" in kwargs:
@@ -214,7 +239,7 @@ class Provider:
                 else:
                     # For other errors, raise them
                     raise
-        
+
         # If we get here, return placeholder
         return LLMResponse(
             content=f"I encountered an issue processing your request. Please try again.",

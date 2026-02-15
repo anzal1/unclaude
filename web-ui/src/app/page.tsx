@@ -2,17 +2,19 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  MessageSquare, 
-  Brain, 
-  Zap, 
+import {
+  MessageSquare,
+  Brain,
+  Zap,
   Settings as SettingsIcon,
   Menu,
   X,
   Loader2,
   Wand2,
   Target,
-  Plug
+  Plug,
+  BarChart3,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,17 +27,33 @@ import SettingsPage from "@/components/pages/SettingsPage";
 import RalphPage from "@/components/pages/RalphPage";
 import PluginsPage from "@/components/pages/PluginsPage";
 import SkillsPage from "@/components/pages/SkillsPage";
+import UsagePage from "@/components/pages/UsagePage";
+import MessagingPage from "@/components/pages/MessagingPage";
 import Onboarding from "@/components/Onboarding";
 
 const pages = [
-  { id: "chat", name: "Chat", icon: MessageSquare, component: ChatPage },
-  { id: "memory", name: "Memory", icon: Brain, component: MemoryPage },
-  { id: "ralph", name: "Ralph Mode", icon: Wand2, component: RalphPage },
-  { id: "jobs", name: "Jobs", icon: Zap, component: JobsPage },
-  { id: "skills", name: "Skills", icon: Target, component: SkillsPage },
-  { id: "plugins", name: "Plugins", icon: Plug, component: PluginsPage },
-  { id: "settings", name: "Settings", icon: SettingsIcon, component: SettingsPage },
+  { id: "chat", name: "Chat", icon: MessageSquare },
+  { id: "memory", name: "Memory", icon: Brain },
+  { id: "ralph", name: "Ralph Mode", icon: Wand2 },
+  { id: "jobs", name: "Jobs", icon: Zap },
+  { id: "usage", name: "Usage", icon: BarChart3 },
+  { id: "messaging", name: "Messaging", icon: Send },
+  { id: "skills", name: "Skills", icon: Target },
+  { id: "plugins", name: "Plugins", icon: Plug },
+  { id: "settings", name: "Settings", icon: SettingsIcon },
 ];
+
+const pageComponents: Record<string, React.ComponentType<any>> = {
+  chat: ChatPage,
+  memory: MemoryPage,
+  ralph: RalphPage,
+  jobs: JobsPage,
+  usage: UsagePage,
+  messaging: MessagingPage,
+  skills: SkillsPage,
+  plugins: PluginsPage,
+  settings: SettingsPage,
+};
 
 export default function Dashboard() {
   const [currentPage, setCurrentPage] = useState("chat");
@@ -49,12 +67,12 @@ export default function Dashboard() {
       try {
         const res = await fetch("/api/settings");
         const data = await res.json();
-        
+
         // Check if any provider has a key configured
         const hasAnyKey = Object.values(data.providers || {}).some(
-          (p: any) => p.has_key
+          (p: any) => p.has_key,
         );
-        
+
         setShowOnboarding(!hasAnyKey);
       } catch {
         // If API fails, show dashboard anyway
@@ -63,12 +81,16 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
-    
+
     checkOnboarding();
   }, []);
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false);
+  };
+
+  const handleRunSetupWizard = () => {
+    setShowOnboarding(true);
   };
 
   // Loading state
@@ -85,7 +107,7 @@ export default function Dashboard() {
     return <Onboarding onComplete={handleOnboardingComplete} />;
   }
 
-  const CurrentPageComponent = pages.find(p => p.id === currentPage)?.component || ChatPage;
+  const CurrentPageComponent = pageComponents[currentPage] || ChatPage;
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-950">
@@ -97,7 +119,7 @@ export default function Dashboard() {
       >
         {/* Logo */}
         <div className="flex items-center gap-3 p-6 border-b border-zinc-800">
-          <motion.div 
+          <motion.div
             className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 via-purple-500 to-cyan-500"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -131,7 +153,7 @@ export default function Dashboard() {
                   "flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
                   currentPage === page.id
                     ? "bg-gradient-to-r from-blue-600/20 to-purple-600/20 text-white border border-blue-500/30"
-                    : "text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                    : "text-zinc-400 hover:bg-zinc-800 hover:text-white",
                 )}
               >
                 <page.icon className="h-5 w-5 flex-shrink-0" />
@@ -162,7 +184,7 @@ export default function Dashboard() {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
-                  v0.2.0 • Local Mode
+                  v0.6.0 • Local Mode
                 </motion.span>
               )}
             </AnimatePresence>
@@ -176,7 +198,11 @@ export default function Dashboard() {
           className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-zinc-800 bg-zinc-900"
           onClick={() => setSidebarOpen(!sidebarOpen)}
         >
-          {sidebarOpen ? <X className="h-3 w-3" /> : <Menu className="h-3 w-3" />}
+          {sidebarOpen ? (
+            <X className="h-3 w-3" />
+          ) : (
+            <Menu className="h-3 w-3" />
+          )}
         </Button>
       </motion.aside>
 
@@ -191,7 +217,11 @@ export default function Dashboard() {
             transition={{ duration: 0.2 }}
             className="h-full"
           >
-            <CurrentPageComponent />
+            {currentPage === "settings" ? (
+              <CurrentPageComponent onRunSetupWizard={handleRunSetupWizard} />
+            ) : (
+              <CurrentPageComponent />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>

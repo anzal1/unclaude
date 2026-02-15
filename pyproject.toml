@@ -1,7 +1,7 @@
 [project]
 name = "unclaude"
-version = "0.3.1"
-description = "Open Source Model-Independent Alternative to Claude Code"
+version = "0.6.0"
+description = "Open Source Model-Independent AI Engineer — with web dashboard, smart routing, hierarchical memory, autonomous daemon, multi-agent swarm, and proactive soul system"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -31,6 +31,7 @@ dependencies = [
 dev = ["pytest>=7.0.0", "pytest-asyncio>=0.21.0", "ruff>=0.1.0", "mypy>=1.0.0"]
 memory = ["chromadb>=0.4.0"]
 web = ["fastapi>=0.100.0", "uvicorn>=0.23.0", "websockets>=11.0"]
+browser = ["playwright>=1.40.0"]
 
 [project.scripts]
 unclaude = "unclaude.cli:app"

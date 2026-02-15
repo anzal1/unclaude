@@ -14,13 +14,14 @@ from unclaude.tools.web import WebFetchTool, WebSearchTool
 from unclaude.tools.browser import BrowserTool
 from unclaude.tools.memory import MemoryTool, MemoryStoreTool
 from unclaude.tools.git import GitTool
+from unclaude.tools.notify import NotifyOwnerTool
 
 
 def get_default_tools() -> list[Tool]:
     """Get the default set of tools."""
     # Lazy import to avoid circular dependency
     from unclaude.agent.subagent import SubagentTool
-    
+
     return [
         FileReadTool(),
         FileWriteTool(),
@@ -36,6 +37,7 @@ def get_default_tools() -> list[Tool]:
         MemoryStoreTool(),
         GitTool(),
         SubagentTool(),
+        NotifyOwnerTool(),
     ]
 
 
@@ -55,5 +57,6 @@ __all__ = [
     "MemoryTool",
     "MemoryStoreTool",
     "GitTool",
+    "NotifyOwnerTool",
     "get_default_tools",
 ]

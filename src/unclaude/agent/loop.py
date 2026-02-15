@@ -70,7 +70,8 @@ class AgentLoop:
         self.max_iterations = max_iterations
         self.settings = get_settings()
         self.messages: list[Message] = []
-        self._tool_map: dict[str, Tool] = {tool.name: tool for tool in self.tools}
+        self._tool_map: dict[str, Tool] = {
+            tool.name: tool for tool in self.tools}
 
         # Context loading
         self.project_path = project_path or Path.cwd()
@@ -87,6 +88,9 @@ class AgentLoop:
             )
 
         self.system_prompt = system_prompt or SYSTEM_PROMPT
+
+        # Wire session context to provider for usage tracking
+        self.provider._session_id = self.conversation_id
 
         # Hooks engine for pre/post tool automation
         self.hooks_engine = HooksEngine(self.project_path)
@@ -111,10 +115,10 @@ class AgentLoop:
         # Check if auto-approve is enabled for this session
         if getattr(self, '_auto_approve_all', False):
             return True
-        
+
         if getattr(self, '_auto_approve_tools', None) is None:
             self._auto_approve_tools = set()
-        
+
         if tool.name in self._auto_approve_tools:
             return True
 
@@ -137,14 +141,15 @@ class AgentLoop:
                 title="🔒 Permission Request",
             )
         )
-        console.print("[dim]y=yes, n=no, a=yes to all, t=yes to this tool type[/dim]")
-        
+        console.print(
+            "[dim]y=yes, n=no, a=yes to all, t=yes to this tool type[/dim]")
+
         choice = Prompt.ask(
             "Allow this operation?",
             choices=["y", "n", "a", "t"],
             default="y",
         )
-        
+
         if choice == "a":
             self._auto_approve_all = True
             return True
@@ -185,13 +190,13 @@ class AgentLoop:
         try:
             # Pre-tool hooks
             await self.hooks_engine.execute_hooks("pre_tool", call.name, call.arguments)
-            
+
             # Execute the tool
             result = await tool.execute(**call.arguments)
-            
+
             # Post-tool hooks
             await self.hooks_engine.execute_hooks("post_tool", call.name, call.arguments, result)
-            
+
             return result
         except Exception as e:
             return ToolResult(success=False, output="", error=str(e))
@@ -233,7 +238,7 @@ class AgentLoop:
             self.memory_store.save_message(
                 self.conversation_id, "user", user_input
             )
-            
+
             # Index this message for long-term recall (Infinite Memory)
             import uuid
             memory_id = f"msg-{uuid.uuid4()}"
@@ -241,30 +246,32 @@ class AgentLoop:
                 memory_id=memory_id,
                 content=user_input,
                 memory_type="recall",
-                metadata={"conversation_id": self.conversation_id, "role": "user"},
+                metadata={"conversation_id": self.conversation_id,
+                          "role": "user"},
                 project_path=str(self.project_path),
             )
-            
+
             # Infinite Memory: Retrieve relevant context
             # Project-scoped for speed: only search memories from this project
             memories = self.memory_store.search_memories(
-                user_input, 
+                user_input,
                 project_path=str(self.project_path),
                 limit=3
             )
             if memories:
-                memory_context = "\n".join([f"- {m['content'][:200]}" for m in memories])
-                
+                memory_context = "\n".join(
+                    [f"- {m['content'][:200]}" for m in memories])
+
                 # Avoid injecting if it exactly matches current input
                 if memory_context and user_input not in memory_context:
-                    console.print(Panel(f"[dim]Recalled {len(memories)} project memories[/dim]", title="Brain 🧠"))
+                    console.print(
+                        Panel(f"[dim]Recalled {len(memories)} project memories[/dim]", title="Brain 🧠"))
                     self.messages.append(
                         Message(
-                            role="system", 
+                            role="system",
                             content=f"RECALLED MEMORY (from this project):\n{memory_context}\nUse this context if relevant."
                         )
                     )
-
 
         iterations = 0
         tool_definitions = self._get_tool_definitions()
@@ -272,9 +279,34 @@ class AgentLoop:
         while iterations < self.max_iterations:
             iterations += 1
 
+            # Budget check before each LLM call
+            try:
+                from unclaude.usage import get_usage_tracker
+                budget_status = get_usage_tracker().check_budget()
+                if budget_status.get("budget_set") and not budget_status.get("within_budget"):
+                    action = budget_status.get("action", "warn")
+                    if action == "block":
+                        return (
+                            f"Budget exceeded: ${budget_status['current_spend']:.4f} / "
+                            f"${budget_status['limit']:.2f} ({budget_status['period']}). "
+                            "Increase your budget with `unclaude usage budget --set <amount>` to continue."
+                        )
+                    elif action == "warn":
+                        console.print(
+                            f"[yellow]⚠ Budget exceeded: ${budget_status['current_spend']:.4f} / "
+                            f"${budget_status['limit']:.2f}[/yellow]"
+                        )
+                elif budget_status.get("soft_warning"):
+                    console.print(
+                        f"[dim]Budget: ${budget_status['current_spend']:.4f} / "
+                        f"${budget_status['limit']:.2f} ({budget_status['percentage']:.0f}%)[/dim]"
+                    )
+            except Exception:
+                pass
+
             # Get LLM response
             console.print("[dim]Thinking...[/dim]")
-            
+
             try:
                 response = await self.provider.chat(
                     messages=self.messages,
@@ -310,7 +342,8 @@ class AgentLoop:
                             memory_id=memory_id,
                             content=response.content,
                             memory_type="recall",
-                            metadata={"conversation_id": self.conversation_id, "role": "assistant"},
+                            metadata={
+                                "conversation_id": self.conversation_id, "role": "assistant"},
                             project_path=str(self.project_path),
                         )
                 return response.content or "I'm not sure how to respond to that."
@@ -338,32 +371,37 @@ class AgentLoop:
             # Track consecutive failures to prevent loops
             if not hasattr(self, '_failure_tracker'):
                 self._failure_tracker = {}
-            
+
             all_failed = True
-            
+
             # Execute each tool call
             for call in response.tool_calls:
                 result = await self._execute_tool(call)
 
                 # Show result
                 if result.success:
-                    output = result.output[:500] + "..." if len(result.output) > 500 else result.output
-                    console.print(f"[green]✓[/green] {call.name}: {output[:100]}...")
+                    output = result.output[:500] + \
+                        "..." if len(result.output) > 500 else result.output
+                    console.print(
+                        f"[green]✓[/green] {call.name}: {output[:100]}...")
                     # Reset failure counter on success
                     self._failure_tracker[call.name] = 0
                     all_failed = False
                 else:
                     console.print(f"[red]✗[/red] {call.name}: {result.error}")
-                    
+
                     # Track consecutive failures (exclude bash exit codes which are valid feedback)
-                    is_bash_exit = call.name == "bash_execute" and "Exit code" in (result.error or "")
-                    
+                    is_bash_exit = call.name == "bash_execute" and "Exit code" in (
+                        result.error or "")
+
                     if not is_bash_exit:
-                        self._failure_tracker[call.name] = self._failure_tracker.get(call.name, 0) + 1
-                    
+                        self._failure_tracker[call.name] = self._failure_tracker.get(
+                            call.name, 0) + 1
+
                     # Check for loop: if same tool fails 3+ times, inject a hint
                     if not is_bash_exit and self._failure_tracker[call.name] >= 3:
-                        console.print(f"[yellow]⚠ Tool {call.name} failed {self._failure_tracker[call.name]} times consecutively[/yellow]")
+                        console.print(
+                            f"[yellow]⚠ Tool {call.name} failed {self._failure_tracker[call.name]} times consecutively[/yellow]")
                         result = ToolResult(
                             success=False,
                             output="",
@@ -379,11 +417,12 @@ class AgentLoop:
                         name=call.name,
                     )
                 )
-            
+
             # If all tools failed 5+ times each, break out
             has_failures = any(v > 0 for v in self._failure_tracker.values())
             if all_failed and has_failures and all(v >= 5 for v in self._failure_tracker.values() if v > 0):
-                console.print("[red]Breaking out of loop - multiple consecutive failures detected[/red]")
+                console.print(
+                    "[red]Breaking out of loop - multiple consecutive failures detected[/red]")
                 return "I encountered repeated errors and couldn't complete the task. Please check the error messages above and try a different approach."
 
         return "Maximum iterations reached. Please try a simpler request."
