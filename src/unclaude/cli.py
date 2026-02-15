@@ -1197,7 +1197,7 @@ def _show_task_detail(task) -> None:
 def usage_default(ctx: typer.Context) -> None:
     """Show today's usage summary (default when no subcommand given)."""
     if ctx.invoked_subcommand is None:
-        usage_show()
+        usage_show(period="today")
 
 
 @usage_app.command("show")
