@@ -1,6 +1,6 @@
 [project]
 name = "unclaude"
-version = "0.6.0"
+version = "0.7.0"
 description = "Open Source Model-Independent AI Engineer — with web dashboard, smart routing, hierarchical memory, autonomous daemon, multi-agent swarm, and proactive soul system"
 readme = "README.md"
 requires-python = ">=3.11"
