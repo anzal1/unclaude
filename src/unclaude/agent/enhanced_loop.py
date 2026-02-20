@@ -16,6 +16,7 @@ The EnhancedAgentLoop is a drop-in replacement for AgentLoop.
 import asyncio
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,8 @@ from unclaude.auth import (
     AuditEventType,
     SessionManager,
     Session,
+    PactIdentityManager,
+    PactSessionInfo,
 )
 from unclaude.sessions.manager import (
     SessionStore,
@@ -55,8 +58,9 @@ from unclaude.sessions.manager import (
 from unclaude.context_engine.bootstrap import BootstrapLoader
 from unclaude.context_engine.pruning import ContextPruner
 from unclaude.context_engine.compaction import ContextCompactor
-from unclaude.routing import SmartRouter, RoutingProfile
+from unclaude.routing import SmartRouter, RoutingDecision, RoutingProfile
 from unclaude.heartbeat import HeartbeatManager
+from unclaude.experiential_learning import ExperientialLearner, TaskOutcome
 
 console = Console()
 
@@ -150,6 +154,10 @@ class EnhancedAgentLoop:
         self.security_profile = security_profile
         self.session_manager = SessionManager()
 
+        # ─── Pact Identity Layer ───
+        self.pact_identity = PactIdentityManager()
+        self.pact_session: PactSessionInfo | None = None
+
         # Create or restore session
         if conversation_id:
             self.session = self.session_manager.get_session(conversation_id)
@@ -161,6 +169,8 @@ class EnhancedAgentLoop:
                     policy_profile=security_profile,
                     project_path=str(self.project_path),
                 )
+            # Try to restore Pact session
+            self.pact_session = self.pact_identity.get_session(conversation_id)
         else:
             self.session = self.session_manager.create_session(
                 name="enhanced",
@@ -170,6 +180,15 @@ class EnhancedAgentLoop:
                 project_path=str(self.project_path),
             )
         self.conversation_id = self.session.session_id
+
+        # Create Pact-backed session if not restored
+        if not self.pact_session:
+            self.pact_session = self.pact_identity.create_session(
+                name="enhanced",
+                session_type="interactive",
+                profile=security_profile,
+                project_path=str(self.project_path),
+            )
 
         # ─── Audit ───
         self.enable_audit = enable_audit
@@ -193,6 +212,7 @@ class EnhancedAgentLoop:
 
         # Create provider (may be overridden by routing)
         self.provider = provider or Provider()
+        self._base_provider = self.provider  # Keep reference for routing switches
 
         # ─── Session Persistence ───
         self.session_store = SessionStore()
@@ -216,6 +236,17 @@ class EnhancedAgentLoop:
         # ─── Heartbeat ───
         self.enable_heartbeat = enable_heartbeat
         self.heartbeat = HeartbeatManager() if enable_heartbeat else None
+
+        # ─── Experiential Learning ───
+        self.experiential_learner = (
+            ExperientialLearner(self.hierarchical_memory)
+            if enable_memory and self.hierarchical_memory
+            else None
+        )
+        self._task_start_time: float = 0.0
+        self._tools_used_this_task: list[str] = []
+        self._errors_this_task: list[str] = []
+        self._files_modified_this_task: list[str] = []
 
         # ─── Hooks ───
         self.hooks_engine = HooksEngine(self.project_path)
@@ -562,6 +593,16 @@ class EnhancedAgentLoop:
             f"(${routing_decision.estimated_cost_per_1k:.4f}/1K)[/dim]"
         )
 
+        # Actually switch the provider's model based on routing decision
+        if hasattr(self.provider, 'config') and hasattr(self.provider.config, 'model'):
+            self.provider.config.model = routing_decision.model_id
+
+        # Track task start for experiential learning
+        self._task_start_time = time.time()
+        self._tools_used_this_task = []
+        self._errors_this_task = []
+        self._files_modified_this_task = []
+
         # ─── Initialize System Prompt ───
         if not self.messages:
             # Load bootstrap context as formatted string
@@ -617,6 +658,25 @@ class EnhancedAgentLoop:
                     self.messages.append(Message(
                         role="system",
                         content=f"RECALLED MEMORY:\n{memory_context}\nUse if relevant.",
+                    ))
+
+        # ─── Experiential Pattern Matching ───
+        if self.experiential_learner:
+            experiences = self.experiential_learner.find_relevant_experience(
+                user_input, limit=3,
+            )
+            if experiences:
+                exp_context = self.experiential_learner.format_experience_context(
+                    experiences, max_chars=1500,
+                )
+                if exp_context:
+                    console.print(Panel(
+                        f"[dim]Found {len(experiences)} relevant past experiences[/dim]",
+                        title="Experience 📚",
+                    ))
+                    self.messages.append(Message(
+                        role="system",
+                        content=exp_context,
                     ))
 
         # ─── Context Pruning ───
@@ -716,6 +776,24 @@ class EnhancedAgentLoop:
                 if self.audit_log:
                     self.audit_log.flush()
 
+                # ─── Experiential Learning ───
+                if self.experiential_learner and self._task_start_time > 0:
+                    try:
+                        outcome = TaskOutcome(
+                            task_description=user_input,
+                            result=response.content or "",
+                            success=True,
+                            duration_seconds=time.time() - self._task_start_time,
+                            iterations=iterations,
+                            tools_used=self._tools_used_this_task,
+                            errors_encountered=self._errors_this_task,
+                            files_modified=self._files_modified_this_task,
+                            project_path=str(self.project_path),
+                        )
+                        self.experiential_learner.learn_from_task(outcome)
+                    except Exception:
+                        pass  # Learning is best-effort
+
                 return response.content or "I'm not sure how to respond to that."
 
             # ─── Execute Tool Calls ───
@@ -757,6 +835,14 @@ class EnhancedAgentLoop:
                     all_failed = False
                     any_progress = True
 
+                    # Track for experiential learning
+                    self._tools_used_this_task.append(call.name)
+                    if call.name in ("file_write", "file_edit", "file_create"):
+                        path = call.arguments.get(
+                            "path") or call.arguments.get("file_path", "")
+                        if path:
+                            self._files_modified_this_task.append(path)
+
                     # Store successful tool results in memory
                     if self.enable_memory and self.hierarchical_memory:
                         if call.name in ("file_write", "file_edit", "bash_execute"):
@@ -772,6 +858,10 @@ class EnhancedAgentLoop:
                     is_bash_exit = call.name == "bash_execute" and "Exit code" in (
                         result.error or ""
                     )
+
+                    # Track errors for experiential learning
+                    if result.error:
+                        self._errors_this_task.append(result.error[:200])
 
                     if not is_bash_exit:
                         self._failure_tracker[call.name] = (

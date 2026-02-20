@@ -1,15 +1,24 @@
-"""Subagent system for specialized task delegation."""
+"""Subagent system for specialized task delegation.
+
+Now with Pact capability delegation: subagents receive narrowed
+cryptographic delegations from their parent, not blank Provider instances.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from unclaude.tools.base import Tool, ToolResult
+
+if TYPE_CHECKING:
+    from unclaude.auth.pact_identity import PactIdentityManager, PactSessionInfo
 
 
 @dataclass
 class SubagentConfig:
     """Configuration for a subagent."""
-    
+
     name: str
     description: str
     system_prompt: str
@@ -75,7 +84,15 @@ Be methodical. Check logs, trace execution, and test your fixes.""",
 
 
 class SubagentTool(Tool):
-    """Tool for spawning specialized subagents."""
+    """Tool for spawning specialized subagents with Pact delegation."""
+
+    def __init__(
+        self,
+        pact_identity: PactIdentityManager | None = None,
+        parent_session: PactSessionInfo | None = None,
+    ):
+        self._pact_identity = pact_identity
+        self._parent_session = parent_session
 
     @property
     def name(self) -> str:
@@ -126,7 +143,7 @@ class SubagentTool(Tool):
         from unclaude.agent.loop import AgentLoop
         from unclaude.providers.llm import Provider
         from unclaude.tools import get_default_tools
-        
+
         if template not in SUBAGENT_TEMPLATES:
             return ToolResult(
                 success=False,
@@ -135,6 +152,25 @@ class SubagentTool(Tool):
             )
 
         config = SUBAGENT_TEMPLATES[template]
+
+        # Create Pact delegation for subagent (narrowed capabilities)
+        subagent_pact_session = None
+        if self._pact_identity and self._parent_session:
+            try:
+                # Map template to Pact capability URIs
+                template_capabilities = {
+                    "reviewer": ["file:read", "memory:read"],
+                    "tester": ["file:read", "file:write", "shell:execute", "memory:read"],
+                    "documenter": ["file:read", "file:write", "memory:read"],
+                    "debugger": ["file:read", "shell:execute", "file:write", "memory:read"],
+                }
+                caps = template_capabilities.get(template, ["file:read"])
+                subagent_pact_session = self._pact_identity.create_subagent_delegation(
+                    parent_session=self._parent_session,
+                    capabilities=caps,
+                )
+            except Exception:
+                pass  # Fall back to non-delegated execution
 
         try:
             # Filter tools if specified
@@ -158,8 +194,22 @@ class SubagentTool(Tool):
             if context:
                 full_task = f"{task}\n\nContext:\n{context}"
 
+            # Add delegation context if available
+            if subagent_pact_session:
+                chain_info = (
+                    f"\n\n[Security: Running with delegated capabilities from parent session. "
+                    f"Identity: {subagent_pact_session.identity.id[:16]}. "
+                    f"Chain depth: {len(subagent_pact_session.chain)}.]"
+                )
+                full_task += chain_info
+
             # Run subagent
             result = await subagent.run(full_task)
+
+            # Close subagent session
+            if subagent_pact_session:
+                self._pact_identity.end_session(
+                    subagent_pact_session.session_id)
 
             return ToolResult(
                 success=True,
@@ -167,6 +217,13 @@ class SubagentTool(Tool):
             )
 
         except Exception as e:
+            # Clean up subagent session on error
+            if subagent_pact_session:
+                try:
+                    self._pact_identity.end_session(
+                        subagent_pact_session.session_id)
+                except Exception:
+                    pass
             return ToolResult(
                 success=False,
                 output="",

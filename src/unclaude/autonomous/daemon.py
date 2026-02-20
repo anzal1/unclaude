@@ -28,6 +28,8 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+
+from unclaude.memory_consolidation import ConsolidationEngine, ConsolidationConfig
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +263,9 @@ class AgentDaemon:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._shutdown_event = asyncio.Event()
 
+        # Memory consolidation engine
+        self._consolidation_engine: ConsolidationEngine | None = None
+
         # Stats
         self._tasks_completed = 0
         self._tasks_failed = 0
@@ -396,6 +401,25 @@ class AgentDaemon:
             self.queue.complete(task.task_id, result)
             self._tasks_completed += 1
 
+            # Learn from the task outcome (experiential learning)
+            try:
+                from unclaude.experiential_learning import ExperientialLearner, TaskOutcome
+                from unclaude.memory_v2 import HierarchicalMemory
+                learner = ExperientialLearner(HierarchicalMemory())
+                outcome = TaskOutcome(
+                    task_description=task.description,
+                    result=result or "",
+                    success=True,
+                    tools_used=[],  # Enhanced loop tracks these internally
+                    errors=[],
+                    files_modified=[],
+                    duration_seconds=elapsed,
+                    cost_usd=0.0,
+                )
+                await learner.learn_from_task(outcome)
+            except Exception:
+                pass  # Don't let learning failures affect the daemon
+
             # Track cost from usage tracker
             try:
                 from unclaude.usage import get_usage_tracker
@@ -446,6 +470,26 @@ class AgentDaemon:
             elapsed = time.time() - task_start
             self.queue.fail(task.task_id, str(e))
             self._tasks_failed += 1
+
+            # Learn from failure (often more valuable than success)
+            try:
+                from unclaude.experiential_learning import ExperientialLearner, TaskOutcome
+                from unclaude.memory_v2 import HierarchicalMemory
+                learner = ExperientialLearner(HierarchicalMemory())
+                outcome = TaskOutcome(
+                    task_description=task.description,
+                    result="",
+                    success=False,
+                    tools_used=[],
+                    errors=[str(e)],
+                    files_modified=[],
+                    duration_seconds=elapsed,
+                    cost_usd=0.0,
+                )
+                await learner.learn_from_task(outcome)
+            except Exception:
+                pass
+
             console.print()
             console.print(
                 f"[bold red]!!! Task failed:[/bold red] [white]{task.task_id}[/white] ({elapsed:.1f}s)")
@@ -761,6 +805,54 @@ class AgentDaemon:
 
             await asyncio.sleep(self.poll_interval)
 
+    async def _consolidation_loop(self) -> None:
+        """Run memory consolidation during idle periods.
+
+        The consolidation engine scans recent memories, clusters
+        related ones, promotes them to higher layers, and prunes stale data.
+        This is the agent's "sleep" process — organizing memories.
+        """
+        # Wait for things to settle after startup
+        await asyncio.sleep(60)
+
+        try:
+            from unclaude.memory_v2 import HierarchicalMemory
+            memory = HierarchicalMemory()
+            self._consolidation_engine = ConsolidationEngine(
+                memory=memory,
+                config=ConsolidationConfig(
+                    interval_seconds=600,  # Every 10 minutes
+                    min_resources_for_consolidation=5,
+                    enable_pruning=True,
+                    prune_stale_days=30,
+                ),
+            )
+            console.print(
+                "[bold blue]Memory consolidation engine started[/bold blue]")
+        except Exception as e:
+            console.print(f"[dim]Consolidation engine skipped: {e}[/dim]")
+            return
+
+        while not self._shutdown_event.is_set():
+            try:
+                # Only consolidate when idle (no active tasks)
+                if not self._active_tasks and self._consolidation_engine.should_run():
+                    stats = await self._consolidation_engine.run_cycle()
+                    if stats.items_created > 0 or stats.nodes_pruned > 0:
+                        now = datetime.now().strftime('%H:%M:%S')
+                        console.print(
+                            f"[blue]{now} | Consolidation:[/blue] "
+                            f"+{stats.items_created} items, "
+                            f"-{stats.nodes_pruned} pruned "
+                            f"({stats.duration_seconds:.1f}s)"
+                        )
+
+                # Check every 30s if it's time to consolidate
+                await asyncio.sleep(30)
+            except Exception as e:
+                console.print(f"[red]Consolidation error: {e}[/red]")
+                await asyncio.sleep(120)
+
     async def run(self) -> None:
         """Run the daemon (foreground mode)."""
         self.status = DaemonStatus.STARTING
@@ -818,6 +910,7 @@ class AgentDaemon:
                 self._main_loop(),
                 self._watch_task_files(),
                 self._proactive_loop(),
+                self._consolidation_loop(),
             ]
 
             # Auto-start Telegram polling if configured

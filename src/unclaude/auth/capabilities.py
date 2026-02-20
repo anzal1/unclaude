@@ -122,7 +122,7 @@ class CapabilityScope:
     def is_rate_limited(self) -> bool:
         """Check if rate limit is exceeded."""
         if self.rate_limit_count == -1:
-            return True  # No limit
+            return False  # No limit
         now = time.time()
         # Clean old entries
         self._rate_limit_calls = [

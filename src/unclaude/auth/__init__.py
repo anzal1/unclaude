@@ -35,6 +35,11 @@ from unclaude.auth.session import (
     SessionManager,
     Session,
 )
+from unclaude.auth.pact_identity import (
+    PactIdentityManager,
+    PactSessionInfo,
+    PROFILE_CAPABILITIES,
+)
 
 __all__ = [
     "Capability",
@@ -48,4 +53,7 @@ __all__ = [
     "AuditEventType",
     "SessionManager",
     "Session",
+    "PactIdentityManager",
+    "PactSessionInfo",
+    "PROFILE_CAPABILITIES",
 ]
