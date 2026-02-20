@@ -140,6 +140,7 @@ class EnhancedAgentLoop:
         self._recent_tool_calls: list[tuple[str, str]] = []
         self._stuck_warnings_given: int = 0
         self._iterations_without_progress: int = 0
+        self._stuck_bail_threshold: int = 3  # daemon lowers this for proactive tasks
 
         # Project context
         self.project_path = project_path or Path.cwd()
@@ -522,7 +523,7 @@ class EnhancedAgentLoop:
             unique_calls = set(last_5[-3:])
             if len(unique_calls) == 1:
                 self._stuck_warnings_given += 1
-                if self._stuck_warnings_given >= 3:
+                if self._stuck_warnings_given >= self._stuck_bail_threshold:
                     return "BAIL"
                 tool_name = last_5[-1][0]
                 return (
@@ -540,7 +541,7 @@ class EnhancedAgentLoop:
             dominant_tool, dominant_count = counts.most_common(1)[0]
             if dominant_count >= 6:
                 self._stuck_warnings_given += 1
-                if self._stuck_warnings_given >= 3:
+                if self._stuck_warnings_given >= self._stuck_bail_threshold:
                     return "BAIL"
                 return (
                     f"[SYSTEM] You've called '{dominant_tool}' {dominant_count} times "
@@ -552,7 +553,7 @@ class EnhancedAgentLoop:
         # Pattern 3: No progress for many iterations
         if self._iterations_without_progress >= 5:
             self._stuck_warnings_given += 1
-            if self._stuck_warnings_given >= 3:
+            if self._stuck_warnings_given >= self._stuck_bail_threshold:
                 return "BAIL"
             return (
                 "[SYSTEM] Multiple iterations have passed without any successful "

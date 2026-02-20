@@ -360,6 +360,11 @@ class AgentDaemon:
 
             settings = get_settings()
 
+            # Proactive tasks get lower iteration caps — they're background work
+            # and shouldn't burn tokens on hopeless retries
+            is_proactive = task.source.startswith("proactive:")
+            max_iters = 20 if is_proactive else 50
+
             # Create agent with autonomous profile
             agent = EnhancedAgentLoop(
                 provider=llm_provider,
@@ -367,17 +372,22 @@ class AgentDaemon:
                 project_path=Path(
                     task.project_path) if task.project_path else self.project_path,
                 preferred_provider=provider_name,
+                max_iterations=max_iters,
             )
 
             # Auto-approve all tool calls in daemon mode (no human at the keyboard)
             agent._auto_approve_all = True
+
+            # Proactive tasks bail faster on stuck detection (2 warnings instead of 3)
+            if is_proactive:
+                agent._stuck_bail_threshold = 2
 
             # Wire task ID for usage tracking
             llm_provider._task_id = task.task_id
             llm_provider._request_type = "daemon"
 
             console.print(
-                f"    [dim]Agent initialized, executing (auto-approve on)...[/dim]")
+                f"    [dim]Agent initialized, executing (auto-approve on, max_iters={max_iters})...[/dim]")
 
             # Enhance task description with context for messaging tasks
             task_description = task.description
@@ -392,9 +402,29 @@ class AgentDaemon:
                     f"NEVER search .venv/, node_modules/, or __pycache__/.]"
                 )
 
-            # Run the task — agent has its own smart stuck-detection,
-            # no hard timeout needed
-            result = await agent.run(task_description)
+            # Task-level timeout: proactive=60s, user=300s, messaging=180s
+            if is_proactive:
+                task_timeout = 60
+            elif task.source.startswith("messaging:"):
+                task_timeout = 180
+            else:
+                task_timeout = 300
+
+            # Run the task with timeout — stuck detection is the primary guard,
+            # timeout is a hard backstop
+            try:
+                result = await asyncio.wait_for(
+                    agent.run(task_description),
+                    timeout=task_timeout,
+                )
+            except asyncio.TimeoutError:
+                elapsed = time.time() - task_start
+                console.print(
+                    f"[yellow]⚠ Task {task.task_id} timed out after {task_timeout}s[/yellow]")
+                result = (
+                    f"Task timed out after {task_timeout}s. "
+                    f"Partial work may have been completed."
+                )
 
             # Mark complete
             elapsed = time.time() - task_start
@@ -410,10 +440,11 @@ class AgentDaemon:
                     task_description=task.description,
                     result=result or "",
                     success=True,
-                    tools_used=[],  # Enhanced loop tracks these internally
-                    errors=[],
-                    files_modified=[],
                     duration_seconds=elapsed,
+                    iterations=getattr(agent, '_iteration_count', 0),
+                    tools_used=[],  # Enhanced loop tracks these internally
+                    errors_encountered=[],
+                    files_modified=[],
                     cost_usd=0.0,
                 )
                 await learner.learn_from_task(outcome)
@@ -480,10 +511,11 @@ class AgentDaemon:
                     task_description=task.description,
                     result="",
                     success=False,
-                    tools_used=[],
-                    errors=[str(e)],
-                    files_modified=[],
                     duration_seconds=elapsed,
+                    iterations=0,
+                    tools_used=[],
+                    errors_encountered=[str(e)],
+                    files_modified=[],
                     cost_usd=0.0,
                 )
                 await learner.learn_from_task(outcome)
@@ -740,6 +772,15 @@ class AgentDaemon:
                             "After completing this task, use the notify_owner tool "
                             "to briefly tell the owner what you did.\n"
                         )
+                    soul_context += (
+                        "\n--- Failure Handling ---\n"
+                        "This is a PROACTIVE background task. Be efficient:\n"
+                        "- If an API returns 401/403/404, do NOT retry — report the error and move on.\n"
+                        "- If a tool fails twice with the same error, STOP trying that approach.\n"
+                        "- If you cannot complete the main objective, summarize what happened and conclude.\n"
+                        "- Prefer fewer high-quality actions over many failing attempts.\n"
+                        "- You have a limited iteration budget — don't waste it on retries.\n"
+                    )
                     soul_context += f"\n--- Task ---\n{task_desc}"
 
                     # Submit!
