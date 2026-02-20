@@ -402,7 +402,8 @@ class TestExperientialLearning:
         )
 
         insights = learner.extract_insights(outcome)
-        failure_insights = [i for i in insights if i.insight_type == "failure_pattern"]
+        failure_insights = [
+            i for i in insights if i.insight_type == "failure_pattern"]
         if failure_insights:
             assert all(i.confidence >= 0.6 for i in failure_insights)
 
@@ -540,7 +541,8 @@ class TestPactUnclaude:
         """All profiles should have defined capabilities."""
         from unclaude.auth.pact_identity import PROFILE_CAPABILITIES
 
-        expected_profiles = {"readonly", "developer", "full", "autonomous", "subagent"}
+        expected_profiles = {"readonly", "developer",
+                             "full", "autonomous", "subagent"}
         assert set(PROFILE_CAPABILITIES.keys()) == expected_profiles
         for profile, caps in PROFILE_CAPABILITIES.items():
             assert len(caps) > 0, f"Profile {profile} has no capabilities"

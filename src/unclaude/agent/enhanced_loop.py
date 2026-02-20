@@ -995,6 +995,20 @@ class EnhancedAgentLoop:
         if self.hierarchical_memory:
             summary["memory"] = self.hierarchical_memory.get_stats()
 
+        # Pact cryptographic identity
+        if self.pact_identity:
+            card = self.pact_identity.export_identity_card()
+            summary["pact_identity"] = card
+        if self.pact_session:
+            summary["pact_session"] = {
+                "session_id": self.pact_session.session_id,
+                "session_type": self.pact_session.session_type,
+                "profile": self.pact_session.profile,
+                "chain_depth": len(self.pact_session.chain),
+                "capabilities": self.pact_session.chain[-1].capabilities if self.pact_session.chain else [],
+                "valid": self.pact_identity.verify_session_chain(self.pact_session) if self.pact_identity else None,
+            }
+
         return summary
 
     def reset(self) -> None:

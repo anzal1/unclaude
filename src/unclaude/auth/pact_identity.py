@@ -420,8 +420,10 @@ class PactIdentityManager:
         """Get a session by ID."""
         return self._sessions.get(session_id)
 
-    def end_session(self, session_id: str) -> None:
+    def end_session(self, session_id: str | "PactSessionInfo") -> None:
         """End a session, zeroizing its keys."""
+        if isinstance(session_id, PactSessionInfo):
+            session_id = session_id.session_id
         info = self._sessions.pop(session_id, None)
         if info and not info.is_closed:
             info.pact_session.close()
@@ -432,11 +434,15 @@ class PactIdentityManager:
         if not chain:
             return False
 
-        result = verify_chain(chain, VerifyOptions())
+        opts = VerifyOptions()
+        opts.revocation_checker = self._revocations.is_revoked
+        result = verify_chain(chain, opts)
         return result.valid
 
-    def revoke_session(self, session_id: str, reason: str = "manual") -> bool:
+    def revoke_session(self, session_id: str | "PactSessionInfo", reason: str = "manual") -> bool:
         """Revoke a session's delegation, making it permanently invalid."""
+        if isinstance(session_id, PactSessionInfo):
+            session_id = session_id.session_id
         info = self._sessions.get(session_id)
         if not info:
             return False

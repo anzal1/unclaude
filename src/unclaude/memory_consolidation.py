@@ -219,19 +219,16 @@ class ConsolidationEngine:
             (MemoryLayer.RESOURCE.value, self.config.batch_size),
         )
         from unclaude.memory_v2 import HierarchicalMemory
-        results = [HierarchicalMemory._row_to_node(row) for row in c.fetchall()]
+        results = [HierarchicalMemory._row_to_node(
+            row) for row in c.fetchall()]
         conn.close()
 
         # Filter to those old enough and not already consolidated
         eligible = []
         for node in results:
-            # created_at is ISO string, convert for comparison
-            try:
-                from datetime import datetime, timezone
-                dt = datetime.fromisoformat(node.created_at)
-                ts = dt.timestamp()
-            except (ValueError, TypeError):
-                ts = 0
+            # created_at is a float timestamp (time.time())
+            ts = node.created_at if isinstance(
+                node.created_at, (int, float)) else 0
 
             if ts <= cutoff and not self._is_consolidated(node):
                 eligible.append(node)
@@ -287,7 +284,7 @@ class ConsolidationEngine:
 
         # Merge content: take the most important node's content as base,
         # append unique details from others
-        cluster.sort(key=lambda n: n.importance_weight, reverse=True)
+        cluster.sort(key=lambda n: n.salience, reverse=True)
         primary = cluster[0]
 
         # Build consolidated content
@@ -303,7 +300,7 @@ class ConsolidationEngine:
 
         # Average importance, boosted slightly for consolidation
         avg_importance = sum(
-            n.importance_weight for n in cluster) / len(cluster)
+            n.salience for n in cluster) / len(cluster)
         boosted = min(1.0, avg_importance * 1.2)
 
         # Determine importance level
@@ -326,7 +323,7 @@ class ConsolidationEngine:
                 metadata={
                     "source": "consolidation",
                     "source_count": len(cluster),
-                    "source_ids": [n.node_id for n in cluster[:10]],
+                    "source_ids": [n.id for n in cluster[:10]],
                 },
             )
 
@@ -335,7 +332,7 @@ class ConsolidationEngine:
                 node.metadata["_consolidated"] = True
                 # Add cross-reference
                 try:
-                    self.memory.add_reference(item_id, node.node_id)
+                    self.memory.add_reference(item_id, node.id)
                 except Exception:
                     pass
 
